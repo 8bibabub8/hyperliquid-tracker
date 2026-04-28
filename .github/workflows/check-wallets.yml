@@ -1,0 +1,15 @@
+name: Check Wallets
+
+on:
+  schedule:
+    - cron: "*/1 * * * *"
+  workflow_dispatch:
+
+jobs:
+  run-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Call Supabase Function
+        run: |
+          curl -X POST https://cvdnudenzjooginvgbnt.supabase.co/functions/v1/check-wallets

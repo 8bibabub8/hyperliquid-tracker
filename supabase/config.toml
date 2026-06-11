@@ -12,7 +12,7 @@ entrypoint = "./functions/register-wallet/index.ts"
 
 [functions.check-wallets]
 enabled = true
-verify_jwt = true
+verify_jwt = false
 import_map = "./functions/check-wallets/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
@@ -20,3 +20,14 @@ entrypoint = "./functions/check-wallets/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/check-wallets/*.html" ]
+
+[functions.unregister-wallet]
+enabled = true
+verify_jwt = true
+import_map = "./functions/unregister-wallet/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/unregister-wallet/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/unregister-wallet/*.html" ]

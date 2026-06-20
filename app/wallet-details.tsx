@@ -150,9 +150,17 @@ function buildWalletDetails(data: any): WalletDetails {
       leverage = `${parseFloat((positionValue / marginUsed).toFixed(1))}x`;
     }
 
+    // ROE is the return on the margin committed at entry. `marginUsed` is the
+    // margin on the *current* (shrunken) notional, which overstates ROE for
+    // underwater positions. Scale it back to the entry notional so the figure
+    // reflects the actual capital deployed.
     let roe = '—';
-    if (marginUsed > 0) {
-      const roeValue = (Number(p?.unrealizedPnl ?? 0) / marginUsed) * 100;
+    const unrealizedPnl = Number(p?.unrealizedPnl ?? 0);
+    const entryNotional = Math.abs(size) * Number(p?.entryPx ?? 0);
+    const entryMargin =
+      positionValue > 0 ? (marginUsed * entryNotional) / positionValue : marginUsed;
+    if (entryMargin > 0) {
+      const roeValue = (unrealizedPnl / entryMargin) * 100;
       roe = `${roeValue.toFixed(1)}%`;
     }
 
@@ -722,7 +730,7 @@ const createStyles = (theme: typeof darkTheme) =>
       borderRadius: 22,
       borderWidth: 1,
       borderColor: theme.border,
-      marginBottom: 14,
+      marginBottom: 12,
       overflow: 'hidden',
       flexDirection: 'row',
     },
@@ -737,7 +745,7 @@ const createStyles = (theme: typeof darkTheme) =>
     },
     positionBody: {
       flex: 1,
-      padding: 16,
+      padding: 14,
     },
     positionTopRowModern: {
       flexDirection: 'row',
@@ -755,8 +763,8 @@ const createStyles = (theme: typeof darkTheme) =>
     badgeRowModern: {
       flexDirection: 'row',
       gap: 8,
-      marginTop: 10,
-      marginBottom: 12,
+      marginTop: 8,
+      marginBottom: 8,
     },
     sideBadgeModern: {
       paddingHorizontal: 12,
@@ -795,13 +803,13 @@ const createStyles = (theme: typeof darkTheme) =>
     positionMarketPriceModern: {
       color: theme.textMuted,
       fontSize: 14,
-      marginBottom: 6,
+      marginBottom: 4,
     },
     fundingRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: 14,
+      marginBottom: 10,
     },
     fundingLabel: {
       color: theme.textMuted,
@@ -814,7 +822,7 @@ const createStyles = (theme: typeof darkTheme) =>
     positionGridModern: {
       flexDirection: 'row',
       flexWrap: 'wrap',
-      rowGap: 14,
+      rowGap: 10,
     },
     positionCellModern: {
       width: '50%',
@@ -823,7 +831,7 @@ const createStyles = (theme: typeof darkTheme) =>
     positionCellLabelModern: {
       color: theme.textMuted,
       fontSize: 12,
-      marginBottom: 6,
+      marginBottom: 3,
     },
     positionCellValueModern: {
       color: theme.text,
@@ -833,7 +841,7 @@ const createStyles = (theme: typeof darkTheme) =>
     expandHint: {
       color: theme.textMuted,
       fontSize: 12,
-      marginTop: 14,
+      marginTop: 10,
     },
     longBadge: {
       backgroundColor: theme.greenBg,

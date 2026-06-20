@@ -245,7 +245,11 @@ async function fetchWalletCard(wallet: StoredWallet): Promise<WalletCard> {
     }, 0);
 
     const equity = Number(data?.marginSummary?.accountValue ?? 0);
-    const roi = equity > 0 ? (pnl / equity) * 100 : 0;
+    // ROI is measured against the capital basis before the open PnL
+    // (equity − unrealizedPnl), not the post-loss equity. Dividing by the
+    // remaining equity makes the ratio explode past -100% as it nears liquidation.
+    const costBasis = equity - pnl;
+    const roi = costBasis > 0 ? (pnl / costBasis) * 100 : 0;
 
     const badges = positions.slice(0, 3).map((item: any) => {
       const p = item?.position ?? {};
@@ -505,25 +509,27 @@ export default function IndexScreen() {
                       {wallet.name}
                     </Text>
 
-                    <TouchableOpacity
-                      style={styles.inlineIconButton}
-                      onPress={(event) => {
-                        event.stopPropagation();
-                        renameWallet(wallet.address);
-                      }}
-                    >
-                      <Ionicons name="pencil-outline" size={15} color={theme.primary} />
-                    </TouchableOpacity>
+                    <View style={styles.nameActions}>
+                      <TouchableOpacity
+                        style={styles.inlineIconButton}
+                        onPress={(event) => {
+                          event.stopPropagation();
+                          renameWallet(wallet.address);
+                        }}
+                      >
+                        <Ionicons name="pencil-outline" size={15} color={theme.primary} />
+                      </TouchableOpacity>
 
-                    <TouchableOpacity
-                      style={styles.inlineIconButton}
-                      onPress={(event) => {
-                        event.stopPropagation();
-                        deleteWallet(wallet.address);
-                      }}
-                    >
-                      <Ionicons name="trash-outline" size={15} color={theme.red} />
-                    </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.inlineIconButton}
+                        onPress={(event) => {
+                          event.stopPropagation();
+                          deleteWallet(wallet.address);
+                        }}
+                      >
+                        <Ionicons name="trash-outline" size={15} color={theme.red} />
+                      </TouchableOpacity>
+                    </View>
                   </View>
 
                   <View style={styles.addressRow}>
@@ -723,18 +729,23 @@ const createStyles = (theme: typeof darkTheme) =>
     nameRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 10,
+      gap: 6,
     },
     walletName: {
       color: theme.text,
       fontSize: 25,
       fontWeight: '600',
       letterSpacing: -0.5,
-      maxWidth: 150,
+      flexShrink: 1,
+    },
+    nameActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexShrink: 0,
     },
     inlineIconButton: {
-      width: 24,
-      height: 24,
+      width: 22,
+      height: 22,
       alignItems: 'center',
       justifyContent: 'center',
     },

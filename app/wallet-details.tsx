@@ -136,6 +136,17 @@ function isBuySide(side: string) {
   return getSideLabel(side) === 'BUY';
 }
 
+// Display-only: trennt einen optionalen "dex:"-Präfix vom Symbol ab.
+// "xyz:BTC" -> { dex: 'xyz', symbol: 'BTC' }; "BTC" -> { dex: null, symbol: 'BTC' };
+// "#1890" / "@1890" werden als numerische ID erkannt (isId) und bleiben unverändert.
+function parseFillCoin(raw: string) {
+  const idx = raw.indexOf(':');
+  const dex = idx > 0 ? raw.slice(0, idx) : null;
+  const symbol = idx >= 0 ? raw.slice(idx + 1) : raw;
+  const isId = /^[#@]?\d+$/.test(symbol.trim());
+  return { dex, symbol, isId };
+}
+
 function buildWalletDetails(data: any): WalletDetails {
   const raw = data?.assetPositions ?? [];
 
@@ -252,6 +263,7 @@ export default function WalletDetailsScreen() {
   const [expandedPositions, setExpandedPositions] = useState<string[]>([]);
   const [tradeHistory, setTradeHistory] = useState<(TradeItem & { count: number })[]>([]);
   const [copied, setCopied] = useState(false);
+  const [activeTab, setActiveTab] = useState<'positions' | 'fills'>('positions');
 
   const toggleExpanded = (positionId: string) => {
     setExpandedPositions((prev) =>
@@ -440,30 +452,49 @@ export default function WalletDetailsScreen() {
             <Text style={styles.perpsOnlyText}>{text.perpsOnly}</Text>
           </View>
 
-          <View style={styles.kpiGrid}>
-            <View style={styles.kpiCard}>
-              <Text style={styles.kpiLabel}>{text.unrealizedPnl}</Text>
-              <Text style={[styles.kpiValue, Number(details.totalUnrealizedPnl) >= 0 ? styles.green : styles.red]}>
+          <View style={styles.metricRow}>
+            <View style={styles.metricCard}>
+              <Text style={styles.metricLabel}>{text.unrealizedPnl}</Text>
+              <Text style={[styles.metricValue, Number(details.totalUnrealizedPnl) >= 0 ? styles.green : styles.red]}>
                 {formatSignedUSD(details.totalUnrealizedPnl)}
               </Text>
             </View>
 
-            <View style={styles.kpiCard}>
-              <Text style={styles.kpiLabel}>{text.positions}</Text>
-              <Text style={styles.kpiValue}>{details.positions}</Text>
+            <View style={styles.metricCard}>
+              <Text style={styles.metricLabel}>{text.positionValue}</Text>
+              <Text style={styles.metricValue}>{formatUSD(totalPositionValue)}</Text>
             </View>
 
-            <View style={styles.kpiCardFull}>
-              <Text style={styles.kpiLabel}>{text.positionValue}</Text>
-              <Text style={styles.kpiValue}>{formatUSD(totalPositionValue)}</Text>
+            <View style={styles.metricCard}>
+              <Text style={styles.metricLabel}>{text.positions}</Text>
+              <Text style={styles.metricValue}>{details.positions}</Text>
             </View>
           </View>
 
-          <View style={styles.positionSectionHeader}>
-            <Text style={styles.positionSectionTitle}>{text.positions} ({details.positions})</Text>
+          <View style={styles.tabBar}>
+            <TouchableOpacity
+              style={[styles.tabButton, activeTab === 'positions' && styles.tabButtonActive]}
+              onPress={() => setActiveTab('positions')}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.tabButtonText, activeTab === 'positions' && styles.tabButtonTextActive]}>
+                {text.positions} ({details.positions})
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.tabButton, activeTab === 'fills' && styles.tabButtonActive]}
+              onPress={() => setActiveTab('fills')}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.tabButtonText, activeTab === 'fills' && styles.tabButtonTextActive]}>
+                {text.tradeHistory}
+              </Text>
+            </TouchableOpacity>
           </View>
 
-          {details.positionList.length === 0 ? (
+          {activeTab === 'positions' ? (
+            details.positionList.length === 0 ? (
             <View style={styles.card}>
               <Text style={styles.emptyText}>{text.noOpenPositions}</Text>
             </View>
@@ -487,19 +518,19 @@ export default function WalletDetailsScreen() {
                   <View style={styles.positionBody}>
                     <View style={styles.positionTopRowModern}>
                       <View style={styles.positionTopLeftModern}>
-                        <TouchableOpacity
-                          onPress={() =>
-                            router.push({
-                              pathname: '/chart',
-                              params: { coin: p.coin, themeMode },
-                            })
-                          }
-                          activeOpacity={0.75}
-                        >
-                          <Text style={styles.positionCoinModern}>{p.coin}</Text>
-                        </TouchableOpacity>
+                        <View style={styles.coinRowModern}>
+                          <TouchableOpacity
+                            onPress={() =>
+                              router.push({
+                                pathname: '/chart',
+                                params: { coin: p.coin, themeMode },
+                              })
+                            }
+                            activeOpacity={0.75}
+                          >
+                            <Text style={styles.positionCoinModern}>{p.coin}</Text>
+                          </TouchableOpacity>
 
-                        <View style={styles.badgeRowModern}>
                           <View style={[styles.sideBadgeModern, isLong ? styles.longBadge : styles.shortBadge]}>
                             <Text style={[styles.sideBadgeModernText, isLong ? styles.longText : styles.shortText]}>
                               {p.side.toUpperCase()}
@@ -522,55 +553,51 @@ export default function WalletDetailsScreen() {
 
                     <Text style={styles.positionMarketPriceModern}>{formatUSD(p.currentPx)}</Text>
 
-                    <View style={styles.fundingRow}>
-                      <Text style={styles.fundingLabel}>{text.fundingRate}</Text>
-                      <Text style={[styles.fundingValue, fundingNum > 0 ? styles.red : fundingNum < 0 ? styles.green : null]}>
-                        {fundingNum > 0
-                          ? `Paying ${formatUSD(fundingUsdPer8h)}/8h`
-                          : fundingNum < 0
-                            ? `Earning ${formatUSD(fundingUsdPer8h)}/8h`
-                            : '—'}
-                      </Text>
-                    </View>
-
-                    <View style={styles.positionGridModern}>
-                      <View style={styles.positionCellModern}>
+                    <View style={styles.statsRowModern}>
+                      <View style={styles.statItemModern}>
                         <Text style={styles.positionCellLabelModern}>{text.size}</Text>
                         <Text style={styles.positionCellValueModern}>{formatNumber(p.size)}</Text>
                       </View>
 
-                      <View style={styles.positionCellModern}>
+                      <View style={styles.statItemModern}>
                         <Text style={styles.positionCellLabelModern}>{text.entryPrice}</Text>
                         <Text style={styles.positionCellValueModern}>{formatUSD(p.entryPx)}</Text>
                       </View>
 
-                      {isExpanded ? (
-                        <>
-                          <View style={styles.positionCellModern}>
-                            <Text style={styles.positionCellLabelModern}>{text.positionValue}</Text>
-                            <Text style={styles.positionCellValueModern}>{formatUSD(getPositionValue(p))}</Text>
-                          </View>
-
-                          <View style={styles.positionCellModern}>
-                            <Text style={styles.positionCellLabelModern}>{text.liquidationPrice}</Text>
-                            <Text style={[styles.positionCellValueModern, p.liquidationPx !== '—' ? styles.red : null]}>
-                              {p.liquidationPx === '—' ? '—' : formatUSD(p.liquidationPx)}
-                            </Text>
-                          </View>
-                        </>
-                      ) : null}
+                      <View style={styles.statItemModern}>
+                        <Text style={styles.positionCellLabelModern}>{text.fundingRate}</Text>
+                        <Text style={[styles.positionCellValueModern, fundingNum > 0 ? styles.red : fundingNum < 0 ? styles.green : null]}>
+                          {fundingNum > 0
+                            ? `Pay ${formatUSD(fundingUsdPer8h)}/8h`
+                            : fundingNum < 0
+                              ? `Earn ${formatUSD(fundingUsdPer8h)}/8h`
+                              : '—'}
+                        </Text>
+                      </View>
                     </View>
 
-                    <Text style={styles.expandHint}>{isExpanded ? text.tapToCollapse : text.tapForDetails}</Text>
+                    {isExpanded ? (
+                      <View style={styles.statsRowModern}>
+                        <View style={styles.statItemModern}>
+                          <Text style={styles.positionCellLabelModern}>{text.positionValue}</Text>
+                          <Text style={styles.positionCellValueModern}>{formatUSD(getPositionValue(p))}</Text>
+                        </View>
+
+                        <View style={styles.statItemModern}>
+                          <Text style={styles.positionCellLabelModern}>{text.liquidationPrice}</Text>
+                          <Text style={[styles.positionCellValueModern, p.liquidationPx !== '—' ? styles.red : null]}>
+                            {p.liquidationPx === '—' ? '—' : formatUSD(p.liquidationPx)}
+                          </Text>
+                        </View>
+                      </View>
+                    ) : null}
                   </View>
                 </TouchableOpacity>
               );
             })
-          )}
-
+          )
+          ) : (
           <View style={styles.tradeHistorySection}>
-            <Text style={styles.positionSectionTitle}>{text.tradeHistory}</Text>
-
             {tradeHistory.length === 0 ? (
               <View style={styles.card}>
                 <Text style={styles.emptyText}>{text.noTradesFound}</Text>
@@ -578,10 +605,20 @@ export default function WalletDetailsScreen() {
             ) : (
               tradeHistory.map((trade, index) => {
                 const isBuy = isBuySide(trade.side);
+                const coinInfo = parseFillCoin(trade.coin);
                 return (
                   <View key={`${trade.coin}-${trade.time}-${index}`} style={styles.tradeCard}>
                     <View>
-                      <Text style={styles.tradeCoin}>{trade.coin}</Text>
+                      <View style={styles.tradeCoinRow}>
+                        <Text style={[styles.tradeCoin, coinInfo.isId && styles.tradeCoinId]}>
+                          {coinInfo.symbol}
+                        </Text>
+                        {coinInfo.dex ? (
+                          <View style={styles.dexBadge}>
+                            <Text style={styles.dexBadgeText}>{coinInfo.dex}</Text>
+                          </View>
+                        ) : null}
+                      </View>
                       <Text style={styles.tradeMeta}>{formatTradeTime(trade.time)}</Text>
                     </View>
 
@@ -604,6 +641,7 @@ export default function WalletDetailsScreen() {
               })
             )}
           </View>
+          )}
         </ScrollView>
       </SafeAreaView>
     </>
@@ -677,45 +715,60 @@ const createStyles = (theme: typeof darkTheme) =>
       fontSize: 12,
       marginTop: 4,
     },
-    kpiGrid: {
+    metricRow: {
       flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 10,
+      gap: 8,
       marginBottom: 18,
     },
-    kpiCard: {
-      width: '48%',
+    metricCard: {
+      flex: 1,
       backgroundColor: theme.card,
-      borderRadius: 16,
-      padding: 14,
+      borderRadius: 14,
+      paddingVertical: 12,
+      paddingHorizontal: 10,
       borderWidth: 1,
       borderColor: theme.border,
     },
-    kpiCardFull: {
-      width: '100%',
-      backgroundColor: theme.card,
-      borderRadius: 16,
-      padding: 14,
-      borderWidth: 1,
-      borderColor: theme.border,
-    },
-    kpiLabel: {
+    metricLabel: {
       color: theme.textMuted,
-      fontSize: 13,
-      marginBottom: 6,
+      fontSize: 11,
+      marginBottom: 5,
     },
-    kpiValue: {
+    metricValue: {
       color: theme.text,
-      fontSize: 20,
+      fontSize: 16,
       fontWeight: 'bold',
-    },
-    positionSectionHeader: {
-      marginBottom: 10,
     },
     positionSectionTitle: {
       color: theme.text,
       fontSize: 24,
       fontWeight: 'bold',
+    },
+    tabBar: {
+      flexDirection: 'row',
+      backgroundColor: theme.cardSecondary,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: theme.border,
+      padding: 4,
+      marginBottom: 14,
+    },
+    tabButton: {
+      flex: 1,
+      paddingVertical: 9,
+      borderRadius: 10,
+      alignItems: 'center',
+    },
+    tabButtonActive: {
+      backgroundColor: theme.card,
+    },
+    tabButtonText: {
+      color: theme.textMuted,
+      fontSize: 14,
+      fontWeight: '700',
+    },
+    tabButtonTextActive: {
+      color: theme.text,
     },
     card: {
       backgroundColor: theme.card,
@@ -727,10 +780,10 @@ const createStyles = (theme: typeof darkTheme) =>
     },
     positionCardModern: {
       backgroundColor: theme.card,
-      borderRadius: 22,
+      borderRadius: 18,
       borderWidth: 1,
       borderColor: theme.border,
-      marginBottom: 12,
+      marginBottom: 10,
       overflow: 'hidden',
       flexDirection: 'row',
     },
@@ -745,7 +798,7 @@ const createStyles = (theme: typeof darkTheme) =>
     },
     positionBody: {
       flex: 1,
-      padding: 14,
+      padding: 12,
     },
     positionTopRowModern: {
       flexDirection: 'row',
@@ -757,18 +810,18 @@ const createStyles = (theme: typeof darkTheme) =>
     },
     positionCoinModern: {
       color: theme.text,
-      fontSize: 24,
+      fontSize: 20,
       fontWeight: 'bold',
     },
     badgeRowModern: {
       flexDirection: 'row',
-      gap: 8,
-      marginTop: 8,
-      marginBottom: 8,
+      gap: 6,
+      marginTop: 6,
+      marginBottom: 6,
     },
     sideBadgeModern: {
-      paddingHorizontal: 12,
-      paddingVertical: 6,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
       borderRadius: 999,
     },
     sideBadgeModernText: {
@@ -776,8 +829,8 @@ const createStyles = (theme: typeof darkTheme) =>
       fontWeight: '800',
     },
     leverageBadgeModern: {
-      paddingHorizontal: 12,
-      paddingVertical: 6,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
       borderRadius: 999,
       backgroundColor: theme.cardSecondary,
       borderWidth: 1,
@@ -792,7 +845,7 @@ const createStyles = (theme: typeof darkTheme) =>
       alignItems: 'flex-end',
     },
     positionPnlModern: {
-      fontSize: 22,
+      fontSize: 19,
       fontWeight: 'bold',
     },
     positionRoeModern: {
@@ -809,7 +862,7 @@ const createStyles = (theme: typeof darkTheme) =>
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: 10,
+      marginBottom: 8,
     },
     fundingLabel: {
       color: theme.textMuted,
@@ -819,10 +872,25 @@ const createStyles = (theme: typeof darkTheme) =>
       fontSize: 13,
       fontWeight: '700',
     },
+    coinRowModern: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginBottom: 6,
+    },
+    statsRowModern: {
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 4,
+    },
+    statItemModern: {
+      flex: 1,
+    },
     positionGridModern: {
       flexDirection: 'row',
       flexWrap: 'wrap',
-      rowGap: 10,
+      rowGap: 8,
     },
     positionCellModern: {
       width: '50%',
@@ -841,7 +909,7 @@ const createStyles = (theme: typeof darkTheme) =>
     expandHint: {
       color: theme.textMuted,
       fontSize: 12,
-      marginTop: 10,
+      marginTop: 8,
     },
     longBadge: {
       backgroundColor: theme.greenBg,
@@ -882,6 +950,28 @@ const createStyles = (theme: typeof darkTheme) =>
     tradeCoin: {
       color: theme.text,
       fontSize: 17,
+      fontWeight: '700',
+    },
+    tradeCoinRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    tradeCoinId: {
+      color: theme.textMuted,
+      fontWeight: '600',
+    },
+    dexBadge: {
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 6,
+      backgroundColor: theme.cardSecondary,
+      borderWidth: 1,
+      borderColor: theme.border,
+    },
+    dexBadgeText: {
+      color: theme.textMuted,
+      fontSize: 10,
       fontWeight: '700',
     },
     tradeMeta: {

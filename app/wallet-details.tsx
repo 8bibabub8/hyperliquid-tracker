@@ -43,6 +43,7 @@ type TradeItem = {
   sz: string;
   time: number;
   pnl?: string;
+  dir?: string;
 };
 
 const deText = {
@@ -62,6 +63,8 @@ const deText = {
   noTradesFound: 'Keine Trades gefunden.',
   copied: '✓ Kopiert',
   fills: 'Fills',
+  fillOpened: 'Eröffnet',
+  fillClosed: 'Geschlossen',
   noData: 'Keine Daten',
   loadError: 'Wallet-Daten konnten nicht geladen werden.',
   invalidData: 'Hyperliquid hat ungültige Daten zurückgegeben.',
@@ -85,6 +88,8 @@ const enText: typeof deText = {
   noTradesFound: 'No trades found.',
   copied: '✓ Copied',
   fills: 'fills',
+  fillOpened: 'Opened',
+  fillClosed: 'Closed',
   noData: 'No data',
   loadError: 'Could not load wallet data.',
   invalidData: 'Hyperliquid returned invalid data.',
@@ -145,6 +150,14 @@ function parseFillCoin(raw: string) {
   const symbol = idx >= 0 ? raw.slice(idx + 1) : raw;
   const isId = /^[#@]?\d+$/.test(symbol.trim());
   return { dex, symbol, isId };
+}
+
+// Display-only: leitet aus dem dir-Feld ab, ob ein Fill eine Position öffnet/schließt.
+function getFillKind(dir?: string): 'open' | 'close' | null {
+  const d = (dir ?? '').toLowerCase();
+  if (d.includes('open')) return 'open';
+  if (d.includes('close')) return 'close';
+  return null;
 }
 
 function buildWalletDetails(data: any): WalletDetails {
@@ -364,6 +377,7 @@ export default function WalletDetailsScreen() {
               sz: String(fill.sz ?? '0'),
               time: Number(fill.time ?? Date.now()),
               pnl: fill.closedPnl ?? fill.realizedPnl ?? fill.pnl ?? undefined,
+              dir: String(fill.dir ?? ''),
             }));
 
           setTradeHistory(aggregateTrades(rawFills).slice(0, 50));
@@ -607,6 +621,7 @@ export default function WalletDetailsScreen() {
               tradeHistory.map((trade, index) => {
                 const isBuy = isBuySide(trade.side);
                 const coinInfo = parseFillCoin(trade.coin);
+                const fillKind = getFillKind(trade.dir);
                 return (
                   <View key={`${trade.coin}-${trade.time}-${index}`} style={styles.tradeCard}>
                     <View>
@@ -617,6 +632,13 @@ export default function WalletDetailsScreen() {
                         {coinInfo.dex ? (
                           <View style={styles.dexBadge}>
                             <Text style={styles.dexBadgeText}>{coinInfo.dex}</Text>
+                          </View>
+                        ) : null}
+                        {fillKind ? (
+                          <View style={styles.fillKindBadge}>
+                            <Text style={styles.fillKindText}>
+                              {fillKind === 'open' ? text.fillOpened : text.fillClosed}
+                            </Text>
                           </View>
                         ) : null}
                       </View>
@@ -971,6 +993,17 @@ const createStyles = (theme: typeof darkTheme) =>
       borderColor: theme.border,
     },
     dexBadgeText: {
+      color: theme.textMuted,
+      fontSize: 10,
+      fontWeight: '700',
+    },
+    fillKindBadge: {
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 6,
+      backgroundColor: theme.cardSecondary,
+    },
+    fillKindText: {
       color: theme.textMuted,
       fontSize: 10,
       fontWeight: '700',

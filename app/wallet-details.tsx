@@ -455,19 +455,20 @@ export default function WalletDetailsScreen() {
           <View style={styles.metricRow}>
             <View style={styles.metricCard}>
               <Text style={styles.metricLabel}>{text.unrealizedPnl}</Text>
-              <Text style={[styles.metricValue, Number(details.totalUnrealizedPnl) >= 0 ? styles.green : styles.red]}>
+              <Text
+                style={[styles.metricValue, Number(details.totalUnrealizedPnl) >= 0 ? styles.green : styles.red]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
                 {formatSignedUSD(details.totalUnrealizedPnl)}
               </Text>
             </View>
 
             <View style={styles.metricCard}>
               <Text style={styles.metricLabel}>{text.positionValue}</Text>
-              <Text style={styles.metricValue}>{formatUSD(totalPositionValue)}</Text>
-            </View>
-
-            <View style={styles.metricCard}>
-              <Text style={styles.metricLabel}>{text.positions}</Text>
-              <Text style={styles.metricValue}>{details.positions}</Text>
+              <Text style={styles.metricValue} numberOfLines={1} adjustsFontSizeToFit>
+                {formatUSD(totalPositionValue)}
+              </Text>
             </View>
           </View>
 

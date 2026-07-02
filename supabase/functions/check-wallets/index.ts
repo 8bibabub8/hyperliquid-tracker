@@ -324,12 +324,16 @@ Deno.serve(async () => {
         (fill) => fill.time >= recentCutoff && fill.usdValue >= minAlertValue
       );
 
-      const { count: processedCount } = await supabase
+      // Existence check only: we just need to know whether this wallet has any
+      // processed fills yet — never the exact count. LIMIT 1 stops at the first
+      // matching row (index scan on wallet_address) instead of a full count.
+      const { data: existingFills } = await supabase
         .from('processed_fills')
-        .select('id', { count: 'exact', head: true })
-        .eq('wallet_address', wallet.address);
+        .select('id')
+        .eq('wallet_address', wallet.address)
+        .limit(1);
 
-      if ((processedCount ?? 0) === 0) {
+      if ((existingFills?.length ?? 0) === 0) {
         console.log('Initialising processed fills for wallet:', wallet.address);
         console.log('Initial fills marked without push:', candidateFills.length);
 

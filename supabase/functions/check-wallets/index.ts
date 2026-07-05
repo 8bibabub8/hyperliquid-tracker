@@ -134,7 +134,9 @@ function formatFillMessage(
 
   const countSuffix = count > 1 ? ` • ${count}x` : '';
 
-  return `${fill.side} ${formatSize(fill.size)} ${fill.coin} @ $${priceText} • $${formatUsd(fill.usdValue)}${countSuffix} • ${formatTime(fill.time)}`;
+  const coinLabel = fill.coin.replace(/^[^:]*:/, '');
+
+  return `${fill.side} ${formatSize(fill.size)} ${coinLabel} @ $${priceText} • $${formatUsd(fill.usdValue)}${countSuffix} • ${formatTime(fill.time)}`;
 }
 
 function groupFillsForPush(fills: FillState[]): FillGroup[] {

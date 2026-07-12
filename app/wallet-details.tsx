@@ -112,6 +112,7 @@ const deText = {
   marketError: 'Marktdaten konnten nicht geladen werden.',
   notifications: 'Benachrichtigungen',
   notificationsError: 'Benachrichtigungseinstellung konnte nicht gespeichert werden.',
+  spot: 'Spot',
 };
 
 const enText: typeof deText = {
@@ -139,6 +140,7 @@ const enText: typeof deText = {
   marketError: 'Market data could not be loaded.',
   notifications: 'Notifications',
   notificationsError: 'Could not save notification setting.',
+  spot: 'Spot',
 };
 
 function getAppText() {
@@ -195,6 +197,42 @@ function parseFillCoin(raw: string) {
   const symbol = idx >= 0 ? raw.slice(idx + 1) : raw;
   const isId = /^[#@]?\d+$/.test(symbol.trim());
   return { dex, symbol, isId };
+}
+
+// Display-only: maps a Hyperliquid spot pair coin ("@N") to its base token name
+// (e.g. "@230" -> "USDH"). spotMeta is fetched once and cached for the session;
+// on failure the map stays empty and callers fall back to the raw coin.
+let spotNameCache: Record<string, string> | null = null;
+
+async function getSpotNameMap(): Promise<Record<string, string>> {
+  if (spotNameCache) return spotNameCache;
+
+  try {
+    const res = await fetch('https://api.hyperliquid.xyz/info', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'spotMeta' }),
+    });
+    const meta = JSON.parse(await res.text());
+
+    const tokenNameByIndex: Record<number, string> = {};
+    for (const token of meta?.tokens ?? []) {
+      tokenNameByIndex[token?.index] = String(token?.name);
+    }
+
+    const map: Record<string, string> = {};
+    for (const pair of meta?.universe ?? []) {
+      const baseName = tokenNameByIndex[pair?.tokens?.[0]];
+      if (pair?.name && baseName) map[String(pair.name)] = baseName;
+    }
+
+    spotNameCache = map;
+    return map;
+  } catch (error) {
+    // Don't cache the failure so a later refresh can retry.
+    console.log('Hyperliquid spotMeta request failed:', error);
+    return {};
+  }
 }
 
 // Display-only: leitet aus dem dir-Feld ab, ob ein Fill eine Position öffnet/schließt.
@@ -332,6 +370,7 @@ export default function WalletDetailsScreen() {
   const [tradeHistory, setTradeHistory] = useState<(TradeItem & { count: number })[]>([]);
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'positions' | 'fills'>('positions');
+  const [spotNames, setSpotNames] = useState<Record<string, string>>({});
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [notificationsBusy, setNotificationsBusy] = useState(false);
 
@@ -528,6 +567,9 @@ export default function WalletDetailsScreen() {
         console.log('Trade history response was not JSON:', fillsText);
         setTradeHistory([]);
       }
+
+      // Resolve spot pair coins ("@N") to token names for display (cached).
+      setSpotNames(await getSpotNameMap());
     } catch (error) {
       console.error('Fehler beim Laden:', error);
       Alert.alert('Error', text.loadError);
@@ -668,6 +710,7 @@ export default function WalletDetailsScreen() {
             details.positionList.map((p) => {
               const isLong = p.side === 'Long';
               const isProfit = Number(p.unrealizedPnl) >= 0;
+              const coinInfo = parseFillCoin(p.coin);
               const isExpanded = expandedPositions.includes(p.id);
               const fundingNum = Number(p.fundingRate);
               const fundingUsdPer8h = Math.abs(fundingNum * Number(p.positionValue) * 8);
@@ -694,8 +737,14 @@ export default function WalletDetailsScreen() {
                             }
                             activeOpacity={0.75}
                           >
-                            <Text style={styles.positionCoinModern}>{p.coin}</Text>
+                            <Text style={styles.positionCoinModern}>{coinInfo.symbol}</Text>
                           </TouchableOpacity>
+
+                          {coinInfo.dex ? (
+                            <View style={styles.dexBadge}>
+                              <Text style={styles.dexBadgeText}>{coinInfo.dex}</Text>
+                            </View>
+                          ) : null}
 
                           <View style={[styles.sideBadgeModern, isLong ? styles.longBadge : styles.shortBadge]}>
                             <Text style={[styles.sideBadgeModernText, isLong ? styles.longText : styles.shortText]}>
@@ -773,16 +822,25 @@ export default function WalletDetailsScreen() {
                 const isBuy = isBuySide(trade.side);
                 const coinInfo = parseFillCoin(trade.coin);
                 const fillKind = getFillKind(trade.dir);
+                // Resolve spot pairs ("@N") to their token name; fall back to raw.
+                const spotName = spotNames[trade.coin];
+                const isSpot = !!spotName;
+                const displaySymbol = spotName ?? coinInfo.symbol;
                 return (
                   <View key={`${trade.coin}-${trade.time}-${index}`} style={styles.tradeCard}>
                     <View>
                       <View style={styles.tradeCoinRow}>
-                        <Text style={[styles.tradeCoin, coinInfo.isId && styles.tradeCoinId]}>
-                          {coinInfo.symbol}
+                        <Text style={[styles.tradeCoin, coinInfo.isId && !isSpot && styles.tradeCoinId]}>
+                          {displaySymbol}
                         </Text>
                         {coinInfo.dex ? (
                           <View style={styles.dexBadge}>
                             <Text style={styles.dexBadgeText}>{coinInfo.dex}</Text>
+                          </View>
+                        ) : null}
+                        {isSpot ? (
+                          <View style={styles.spotBadge}>
+                            <Text style={styles.spotBadgeText}>{text.spot}</Text>
                           </View>
                         ) : null}
                         {fillKind ? (
@@ -1162,6 +1220,19 @@ const createStyles = (theme: typeof darkTheme) =>
     },
     dexBadgeText: {
       color: theme.textMuted,
+      fontSize: 10,
+      fontWeight: '700',
+    },
+    spotBadge: {
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 6,
+      backgroundColor: theme.blueBg,
+      borderWidth: 1,
+      borderColor: theme.border,
+    },
+    spotBadgeText: {
+      color: theme.primarySoft,
       fontSize: 10,
       fontWeight: '700',
     },

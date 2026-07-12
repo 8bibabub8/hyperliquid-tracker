@@ -1,5 +1,8 @@
 import { darkTheme, lightTheme } from '../theme';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
+import Constants from 'expo-constants';
+import * as Notifications from 'expo-notifications';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -9,10 +12,48 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+
+const SUPABASE_FUNCTIONS_URL = 'https://cvdnudenzjooginvgbnt.supabase.co/functions/v1';
+
+// Local-only cache of the per-wallet notification preference, keyed by address.
+// It seeds the switch on mount; the database row (written via the edge function)
+// remains the source of truth that check-wallets reads.
+const NOTIFICATIONS_STORAGE_PREFIX = 'wallet_notifications_';
+
+async function getExpoPushToken() {
+  try {
+    const existing = await Notifications.getPermissionsAsync();
+    let status = existing.status;
+
+    if (status !== 'granted') {
+      const requested = await Notifications.requestPermissionsAsync();
+      status = requested.status;
+    }
+
+    if (status !== 'granted') {
+      return null;
+    }
+
+    const projectId =
+      Constants.expoConfig?.extra?.eas?.projectId ??
+      Constants.easConfig?.projectId;
+
+    if (!projectId) {
+      return null;
+    }
+
+    const tokenResult = await Notifications.getExpoPushTokenAsync({ projectId });
+    return tokenResult.data;
+  } catch (error) {
+    console.log('Push token error:', error);
+    return null;
+  }
+}
 
 type PositionItem = {
   id: string;
@@ -69,6 +110,8 @@ const deText = {
   loadError: 'Wallet-Daten konnten nicht geladen werden.',
   invalidData: 'Hyperliquid hat ungültige Daten zurückgegeben.',
   marketError: 'Marktdaten konnten nicht geladen werden.',
+  notifications: 'Benachrichtigungen',
+  notificationsError: 'Benachrichtigungseinstellung konnte nicht gespeichert werden.',
 };
 
 const enText: typeof deText = {
@@ -94,6 +137,8 @@ const enText: typeof deText = {
   loadError: 'Could not load wallet data.',
   invalidData: 'Hyperliquid returned invalid data.',
   marketError: 'Market data could not be loaded.',
+  notifications: 'Notifications',
+  notificationsError: 'Could not save notification setting.',
 };
 
 function getAppText() {
@@ -160,8 +205,13 @@ function getFillKind(dir?: string): 'open' | 'close' | null {
   return null;
 }
 
-function buildWalletDetails(data: any): WalletDetails {
-  const raw = data?.assetPositions ?? [];
+function buildWalletDetails(data: any, dexData?: any): WalletDetails {
+  // HIP-3 positions live on a separate clearinghouse (dex "xyz"); merge both
+  // position arrays so they render together.
+  const raw = [
+    ...(data?.assetPositions ?? []),
+    ...(dexData?.assetPositions ?? []),
+  ];
 
   const positionList: PositionItem[] = raw.map((item: any) => {
     const p = item?.position ?? {};
@@ -206,8 +256,13 @@ function buildWalletDetails(data: any): WalletDetails {
 
   const totalUnrealizedPnl = positionList.reduce((sum, p) => sum + Number(p.unrealizedPnl || 0), 0);
 
+  // Perps Equity spans both clearinghouses, so sum both account values.
+  const accountValue =
+    Number(data?.marginSummary?.accountValue ?? 0) +
+    Number(dexData?.marginSummary?.accountValue ?? 0);
+
   return {
-    accountValue: String(data?.marginSummary?.accountValue ?? '0'),
+    accountValue: String(accountValue),
     positions: positionList.length,
     totalUnrealizedPnl: String(totalUnrealizedPnl),
     positionList,
@@ -277,6 +332,53 @@ export default function WalletDetailsScreen() {
   const [tradeHistory, setTradeHistory] = useState<(TradeItem & { count: number })[]>([]);
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'positions' | 'fills'>('positions');
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [notificationsBusy, setNotificationsBusy] = useState(false);
+
+  const notificationsStorageKey = `${NOTIFICATIONS_STORAGE_PREFIX}${address.toLowerCase()}`;
+
+  useEffect(() => {
+    if (!address) return;
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(notificationsStorageKey);
+        if (stored !== null) setNotificationsEnabled(stored === 'true');
+      } catch (error) {
+        console.log('Could not read notification preference:', error);
+      }
+    })();
+  }, [notificationsStorageKey, address]);
+
+  const toggleNotifications = async (next: boolean) => {
+    if (notificationsBusy) return;
+
+    const previous = notificationsEnabled;
+    // Optimistic UI: flip immediately, then reconcile with the backend.
+    setNotificationsEnabled(next);
+    setNotificationsBusy(true);
+
+    try {
+      const pushToken = await getExpoPushToken();
+      if (!pushToken) throw new Error('No push token available');
+
+      const res = await fetch(`${SUPABASE_FUNCTIONS_URL}/set-wallet-notifications`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pushToken, address, enabled: next }),
+      });
+
+      if (!res.ok) throw new Error(`set-wallet-notifications failed: ${res.status}`);
+
+      await AsyncStorage.setItem(notificationsStorageKey, String(next));
+    } catch (error) {
+      console.log('Could not update notifications:', error);
+      // Rollback the optimistic change.
+      setNotificationsEnabled(previous);
+      Alert.alert('Error', text.notificationsError);
+    } finally {
+      setNotificationsBusy(false);
+    }
+  };
 
   const toggleExpanded = (positionId: string) => {
     setExpandedPositions((prev) =>
@@ -318,7 +420,21 @@ export default function WalletDetailsScreen() {
         return;
       }
 
-      const d = buildWalletDetails(data);
+      // HIP-3 positions require a separate clearinghouseState call scoped to the
+      // "xyz" dex. If it fails, fall back to the default-dex behaviour.
+      let dexData;
+      try {
+        const dexRes = await fetch('https://api.hyperliquid.xyz/info', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'clearinghouseState', user: address, dex: 'xyz' }),
+        });
+        dexData = JSON.parse(await dexRes.text());
+      } catch (error) {
+        console.log('Hyperliquid xyz-dex request failed:', error);
+      }
+
+      const d = buildWalletDetails(data, dexData);
 
       const marketRes = await fetch('https://api.hyperliquid.xyz/info', {
         method: 'POST',
@@ -336,14 +452,38 @@ export default function WalletDetailsScreen() {
         return;
       }
 
+      // HIP-3 (xyz) coins are absent from the default universe, so fetch the
+      // xyz market context too. If it fails, only default-dex prices resolve.
+      let dexMarket;
+      try {
+        const dexMarketRes = await fetch('https://api.hyperliquid.xyz/info', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'metaAndAssetCtxs', dex: 'xyz' }),
+        });
+        dexMarket = JSON.parse(await dexMarketRes.text());
+      } catch (error) {
+        console.log('Hyperliquid xyz-market request failed:', error);
+      }
+
+      // Merge both universes/contexts index-aligned. xyz universe names carry an
+      // "xyz:" prefix (matching the xyz assetPositions coin names) so they never
+      // collide with the unprefixed default-dex names.
+      const universe = [
+        ...(Array.isArray(market?.[0]?.universe) ? market[0].universe : []),
+        ...(Array.isArray(dexMarket?.[0]?.universe) ? dexMarket[0].universe : []),
+      ];
+      const assetCtxs = [
+        ...(Array.isArray(market?.[1]) ? market[1] : []),
+        ...(Array.isArray(dexMarket?.[1]) ? dexMarket[1] : []),
+      ];
+
       const prices: Record<string, string> = {};
       const fundingRates: Record<string, string> = {};
-      if (Array.isArray(market?.[0]?.universe) && Array.isArray(market?.[1])) {
-        market[0].universe.forEach((a: any, i: number) => {
-          prices[a.name] = String(market[1][i]?.markPx ?? '0');
-          fundingRates[a.name] = String(market[1][i]?.funding ?? '0');
-        });
-      }
+      universe.forEach((a: any, i: number) => {
+        prices[a.name] = String(assetCtxs[i]?.markPx ?? '0');
+        fundingRates[a.name] = String(assetCtxs[i]?.funding ?? '0');
+      });
 
       d.positionList = d.positionList.map((p) => ({
         ...p,
@@ -464,6 +604,17 @@ export default function WalletDetailsScreen() {
             <Text style={styles.equityLabel}>{text.perpsEquity}</Text>
             <Text style={styles.equityValue}>{formatUSD(details.accountValue)}</Text>
             <Text style={styles.perpsOnlyText}>{text.perpsOnly}</Text>
+          </View>
+
+          <View style={styles.notificationsRow}>
+            <Text style={styles.notificationsLabel}>{text.notifications}</Text>
+            <Switch
+              value={notificationsEnabled}
+              onValueChange={toggleNotifications}
+              disabled={notificationsBusy}
+              trackColor={{ false: theme.border, true: theme.primary }}
+              thumbColor={theme.card}
+            />
           </View>
 
           <View style={styles.metricRow}>
@@ -737,6 +888,23 @@ const createStyles = (theme: typeof darkTheme) =>
       color: theme.textMuted,
       fontSize: 12,
       marginTop: 4,
+    },
+    notificationsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: theme.card,
+      borderRadius: 14,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+      borderWidth: 1,
+      borderColor: theme.border,
+      marginBottom: 12,
+    },
+    notificationsLabel: {
+      color: theme.text,
+      fontSize: 14,
+      fontWeight: '600',
     },
     metricRow: {
       flexDirection: 'row',

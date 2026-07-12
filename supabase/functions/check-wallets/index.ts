@@ -125,16 +125,49 @@ function formatTime(timestampMs: number): string {
   return `${h}:${m}`;
 }
 
+// Display-only: fetches spotMeta once per execution and maps a spot pair coin
+// ("@N") to its base token name (e.g. "@230" -> "USDH"). On failure returns an
+// empty map so formatFillMessage falls back to the raw coin.
+async function fetchSpotNameMap(): Promise<Record<string, string>> {
+  try {
+    const res = await fetch('https://api.hyperliquid.xyz/info', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'spotMeta' }),
+    });
+    const meta = await res.json();
+
+    const tokenNameByIndex: Record<number, string> = {};
+    for (const token of meta?.tokens ?? []) {
+      tokenNameByIndex[token?.index] = String(token?.name);
+    }
+
+    const map: Record<string, string> = {};
+    for (const pair of meta?.universe ?? []) {
+      const baseName = tokenNameByIndex[pair?.tokens?.[0]];
+      if (pair?.name && baseName) map[String(pair.name)] = baseName;
+    }
+
+    return map;
+  } catch (error) {
+    console.error('spotMeta request failed:', String(error));
+    return {};
+  }
+}
+
 function formatFillMessage(
   fill: { coin: string; side: string; size: number; price: number; usdValue: number; time: number },
-  count = 1
+  count = 1,
+  spotNames: Record<string, string> = {}
 ) {
   const priceText =
     fill.price >= 100 ? fill.price.toFixed(2) : fill.price.toPrecision(4);
 
   const countSuffix = count > 1 ? ` • ${count}x` : '';
 
-  const coinLabel = fill.coin.replace(/^[^:]*:/, '');
+  // Resolve spot pairs ("@N") to their token name; otherwise strip any dex
+  // prefix (e.g. "xyz:INTC" -> "INTC").
+  const coinLabel = spotNames[fill.coin] ?? fill.coin.replace(/^[^:]*:/, '');
 
   return `${fill.side} ${formatSize(fill.size)} ${coinLabel} @ $${priceText} • $${formatUsd(fill.usdValue)}${countSuffix} • ${formatTime(fill.time)}`;
 }
@@ -274,6 +307,9 @@ Deno.serve(async () => {
     console.log('Function started');
     console.log('Wallets loaded:', wallets?.length ?? 0);
 
+    // Fetched once per execution and reused for all wallets' push messages.
+    const spotNames = await fetchSpotNameMap();
+
     for (const wallet of wallets ?? []) {
       checked += 1;
 
@@ -385,7 +421,7 @@ Deno.serve(async () => {
       }
 
       for (const group of groupsToPush) {
-        const message = formatFillMessage(group, group.count);
+        const message = formatFillMessage(group, group.count, spotNames);
 
         await supabase.from('alert_events').insert({
           wallet_address: wallet.address,

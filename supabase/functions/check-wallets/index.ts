@@ -140,41 +140,37 @@ function formatFillMessage(
 }
 
 function groupFillsForPush(fills: FillState[]): FillGroup[] {
-  const groups: FillGroup[] = [];
+  // Group the whole batch by coin+side (not just against the last group), so
+  // interleaved fills of the same coin/side still collapse into one group.
+  const groups = new Map<string, FillGroup>();
 
   for (const fill of fills) {
-    const last = groups[groups.length - 1];
+    const key = `${fill.coin}|${fill.side}`;
+    const existing = groups.get(key);
 
-    if (
-      last &&
-      last.coin === fill.coin &&
-      last.side === fill.side &&
-      fill.time - last.time <= FILL_GROUP_WINDOW_MS
-    ) {
-      const totalSize = last.size + fill.size;
-
-      last.price =
-        totalSize > 0
-          ? (last.price * last.size + fill.price * fill.size) / totalSize
-          : fill.price;
-      last.size = totalSize;
-      last.usdValue += fill.usdValue;
-      last.time = fill.time;
-      last.count += 1;
+    if (existing) {
+      existing.size += fill.size;
+      existing.usdValue += fill.usdValue;
+      existing.count += 1;
     } else {
-      groups.push({
+      groups.set(key, {
         coin: fill.coin,
         side: fill.side,
         size: fill.size,
         price: fill.price,
         usdValue: fill.usdValue,
-        time: fill.time,
+        time: fill.time, // first fill's time preserves first-appearance ordering
         count: 1,
       });
     }
   }
 
-  return groups;
+  // Map keeps insertion order, so this is the order of each group's first fill.
+  return Array.from(groups.values()).map((group) => ({
+    ...group,
+    // Weighted average price = total USD / total size (size-weighted).
+    price: group.size > 0 ? group.usdValue / group.size : group.price,
+  }));
 }
 
 async function sendExpoPush(pushToken: string, body: string) {

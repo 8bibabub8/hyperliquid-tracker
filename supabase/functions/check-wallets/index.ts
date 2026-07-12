@@ -251,6 +251,7 @@ Deno.serve(async () => {
         address,
         name,
         min_alert_value,
+        notifications_enabled,
         devices (
           push_token
         ),
@@ -406,11 +407,19 @@ Deno.serve(async () => {
 
         const pushBody = `${wallet.name || 'Wallet'}: ${message}`;
 
+        detected += 1;
+
+        // Per-wallet mute: ingestion, fill_key dedup and all DB writes above run
+        // unchanged so Recent Fills stays complete — only the push send is skipped.
+        if (wallet.notifications_enabled === false) {
+          console.log('Notifications muted, skipping push for wallet:', wallet.address);
+          continue;
+        }
+
         console.log('Sending push:', pushBody);
 
         await sendExpoPush(pushToken, pushBody);
 
-        detected += 1;
         pushed += 1;
       }
 

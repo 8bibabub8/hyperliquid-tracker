@@ -58,7 +58,7 @@ const deText = {
   alreadyTracked: 'Diese Wallet wird bereits getrackt.',
   invalidAddress: 'Bitte gib eine gültige Wallet-Adresse ein.',
   deleteTitle: 'Wallet löschen?',
-  deleteMessage: 'Diese Wallet wird aus der App entfernt und in Supabase deaktiviert.',
+  deleteMessage: 'Diese Wallet wird aus der App entfernt und ihre gespeicherten Daten werden in Supabase gelöscht.',
   deleteCancel: 'Abbrechen',
   deleteConfirm: 'Löschen',
   copied: 'Adresse kopiert',
@@ -87,7 +87,7 @@ const enText: typeof deText = {
   alreadyTracked: 'Wallet already tracked.',
   invalidAddress: 'Please enter a valid wallet address.',
   deleteTitle: 'Delete wallet?',
-  deleteMessage: 'This wallet will be removed from the app and deactivated in Supabase.',
+  deleteMessage: 'This wallet will be removed from the app and its stored data will be deleted in Supabase.',
   deleteCancel: 'Cancel',
   deleteConfirm: 'Delete',
   copied: 'Address copied',
@@ -214,10 +214,18 @@ async function registerWalletInSupabase(wallet: StoredWallet) {
 
 async function unregisterWalletInSupabase(address: string) {
   try {
+    const pushToken = await getExpoPushToken();
+
+    if (!pushToken) {
+      console.log('No push token available for unregister.');
+      return;
+    }
+
     await fetch(`${SUPABASE_FUNCTIONS_URL}/unregister-wallet`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        pushToken,
         address: normalizeAddress(address),
       }),
     });

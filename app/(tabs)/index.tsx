@@ -24,6 +24,7 @@ import {
 const SUPABASE_FUNCTIONS_URL = 'https://cvdnudenzjooginvgbnt.supabase.co/functions/v1';
 const STORAGE_WALLETS_KEY = 'tracked_wallets';
 const STORAGE_THEME_KEY = 'theme_mode';
+const STORAGE_PUSH_TOKEN_KEY = 'push_token';
 
 type ThemeMode = 'dark' | 'light';
 
@@ -61,6 +62,7 @@ const deText = {
   deleteMessage: 'Diese Wallet wird aus der App entfernt und ihre gespeicherten Daten werden in Supabase gelöscht.',
   deleteCancel: 'Abbrechen',
   deleteConfirm: 'Löschen',
+  deleteFailed: 'Konnte nicht gelöscht werden, bitte erneut versuchen.',
   copied: 'Adresse kopiert',
   perps: 'Perps',
   roi: 'ROI',
@@ -90,6 +92,7 @@ const enText: typeof deText = {
   deleteMessage: 'This wallet will be removed from the app and its stored data will be deleted in Supabase.',
   deleteCancel: 'Cancel',
   deleteConfirm: 'Delete',
+  deleteFailed: 'Could not delete, please try again.',
   copied: 'Address copied',
   perps: 'Perps',
   roi: 'ROI',
@@ -178,6 +181,14 @@ async function getExpoPushToken() {
 
     console.log('Expo push token result:', tokenResult);
 
+    // Persist the last successful token so token-dependent calls (e.g. delete)
+    // can still run when getExpoPushTokenAsync is intermittently unavailable.
+    if (tokenResult.data) {
+      try {
+        await AsyncStorage.setItem(STORAGE_PUSH_TOKEN_KEY, tokenResult.data);
+      } catch {}
+    }
+
     return tokenResult.data;
   } catch (error) {
     console.log('Push token error:', error);
@@ -213,24 +224,30 @@ async function registerWalletInSupabase(wallet: StoredWallet) {
 }
 
 async function unregisterWalletInSupabase(address: string) {
-  try {
-    const pushToken = await getExpoPushToken();
+  // Prefer a freshly fetched token, fall back to the last persisted one so a
+  // flaky getExpoPushToken() does not block deletion. Only when both are
+  // missing can the call not be made.
+  let pushToken = await getExpoPushToken();
 
-    if (!pushToken) {
-      console.log('No push token available for unregister.');
-      return;
-    }
+  if (!pushToken) {
+    pushToken = await AsyncStorage.getItem(STORAGE_PUSH_TOKEN_KEY);
+  }
 
-    await fetch(`${SUPABASE_FUNCTIONS_URL}/unregister-wallet`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        pushToken,
-        address: normalizeAddress(address),
-      }),
-    });
-  } catch (error) {
-    console.log('unregister-wallet failed:', error);
+  if (!pushToken) {
+    throw new Error('No push token available for unregister.');
+  }
+
+  const response = await fetch(`${SUPABASE_FUNCTIONS_URL}/unregister-wallet`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      pushToken,
+      address: normalizeAddress(address),
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`unregister-wallet failed with status ${response.status}`);
   }
 }
 
@@ -423,6 +440,16 @@ export default function IndexScreen() {
         text: text.deleteConfirm,
         style: 'destructive',
         onPress: async () => {
+          // Delete server-side first; only drop the wallet locally once the
+          // cleanup succeeded, so a failed call leaves the wallet in place.
+          try {
+            await unregisterWalletInSupabase(address);
+          } catch (error) {
+            console.log('unregister-wallet failed:', error);
+            Alert.alert(text.error, text.deleteFailed);
+            return;
+          }
+
           const raw = await AsyncStorage.getItem(STORAGE_WALLETS_KEY);
           const stored: StoredWallet[] = raw ? JSON.parse(raw) : [];
 
@@ -431,7 +458,6 @@ export default function IndexScreen() {
           );
 
           await AsyncStorage.setItem(STORAGE_WALLETS_KEY, JSON.stringify(next));
-          await unregisterWalletInSupabase(address);
           await loadWallets();
         },
       },

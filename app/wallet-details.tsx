@@ -2,6 +2,7 @@ import { darkTheme, lightTheme } from '../theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import Constants from 'expo-constants';
+import * as Localization from 'expo-localization';
 import * as Notifications from 'expo-notifications';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -144,7 +145,7 @@ const enText: typeof deText = {
 };
 
 function getAppText() {
-  const locale = Intl.DateTimeFormat().resolvedOptions().locale.toLowerCase();
+  const locale = (Localization.getLocales()[0]?.languageCode ?? 'en').toLowerCase();
   return locale.startsWith('de') ? deText : enText;
 }
 

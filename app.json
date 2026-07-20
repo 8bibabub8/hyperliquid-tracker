@@ -4,12 +4,9 @@
     "slug": "hyperliquid-tracker",
     "version": "1.0.0",
     "orientation": "portrait",
-
     "icon": "./assets/images/app-icon.png",
-
     "scheme": "hyperliquidtracker",
     "userInterfaceStyle": "automatic",
-
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.8bibabub8.hyperliquidtracker",
@@ -17,7 +14,6 @@
         "ITSAppUsesNonExemptEncryption": false
       }
     },
-
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/app-icon.png",
@@ -25,43 +21,36 @@
       },
       "predictiveBackGestureEnabled": false
     },
-
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
-
     "plugins": [
       "expo-router",
-
       [
         "expo-splash-screen",
         {
           "backgroundColor": "#f4f7fb",
-
           "dark": {
             "backgroundColor": "#0b1020"
           }
         }
       ],
-
       "expo-font",
       "expo-image",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-localization"
     ],
-
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
     },
-
     "extra": {
       "router": {},
       "eas": {
         "projectId": "2d931c55-d9c0-423b-8c3e-a03b87113f92"
       }
     },
-
     "owner": "8bibabub8"
   }
 }

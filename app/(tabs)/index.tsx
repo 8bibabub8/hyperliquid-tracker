@@ -42,7 +42,7 @@ type WalletCard = StoredWallet & {
 };
 
 const deText = {
-  title: 'Hyperliquid Tracker',
+  title: 'Perp Position Tracker',
   subtitle: 'Tracke öffentliche Wallets und ihre Aktivität.',
   updated: 'Aktualisiert',
   addWallet: 'Wallet hinzufügen',
@@ -72,7 +72,7 @@ const deText = {
 };
 
 const enText: typeof deText = {
-  title: 'Hyperliquid Tracker',
+  title: 'Perp Position Tracker',
   subtitle: 'Track public wallets and their activity.',
   updated: 'Updated',
   addWallet: 'Add Wallet',

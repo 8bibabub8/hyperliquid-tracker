@@ -70,6 +70,7 @@ const deText = {
   pos: 'Pos',
   noWallets: 'Noch keine Wallets',
   noWalletsHint: 'Tippe oben rechts auf das Wallet-Symbol, um eine Wallet hinzuzufügen.',
+  loadDemo: 'Demo-Wallet laden',
 };
 
 const enText: typeof deText = {
@@ -100,6 +101,7 @@ const enText: typeof deText = {
   pos: 'Pos',
   noWallets: 'No wallets yet',
   noWalletsHint: 'Tap the wallet icon in the top right to add a wallet.',
+  loadDemo: 'Load demo wallet',
 };
 
 function getAppText() {
@@ -368,9 +370,11 @@ export default function IndexScreen() {
     await AsyncStorage.setItem(STORAGE_THEME_KEY, next);
   };
 
-  const addWallet = async () => {
-    const address = normalizeAddress(walletAddress);
-    const name = walletName.trim() || 'Wallet';
+  const addWallet = async (addressArg?: string, nameArg?: string) => {
+    const rawAddress = addressArg ?? walletAddress;
+    const rawName = nameArg ?? walletName;
+    const address = normalizeAddress(rawAddress);
+    const name = rawName.trim() || 'Wallet';
 
     if (!address) {
       Alert.alert(text.error, text.addressMissing);
@@ -524,6 +528,12 @@ export default function IndexScreen() {
             <Ionicons name="wallet-outline" size={38} color={theme.primary} />
             <Text style={styles.emptyTitle}>{text.noWallets}</Text>
             <Text style={styles.emptyHint}>{text.noWalletsHint}</Text>
+            <TouchableOpacity
+              style={styles.primaryButton}
+              onPress={() => addWallet('0x4e23288cee4960f9f962195c22948e4bc7ae20c3', 'Demo Wallet')}
+            >
+              <Text style={styles.primaryButtonText}>{text.loadDemo}</Text>
+            </TouchableOpacity>
           </View>
         ) : null}
 
@@ -646,7 +656,7 @@ export default function IndexScreen() {
               style={styles.input}
             />
 
-            <TouchableOpacity style={styles.primaryButton} onPress={addWallet}>
+            <TouchableOpacity style={styles.primaryButton} onPress={() => addWallet()}>
               <Text style={styles.primaryButtonText}>{text.trackWallet}</Text>
             </TouchableOpacity>
 
